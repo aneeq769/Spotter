@@ -112,6 +112,9 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG
 # OpenRouteService API key (free tier)
 ORS_API_KEY = os.environ.get('ORS_API_KEY', '')
 
+# Mapbox token
+MAPBOX_TOKEN = os.environ.get('MAPBOX_TOKEN', '')
+
 # Path to the bundled fuel-price CSV
 FUEL_PRICES_CSV = BASE_DIR / 'fuel_prices.csv'
 

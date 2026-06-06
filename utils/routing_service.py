@@ -1,13 +1,11 @@
 """
 routing_service.py
 ------------------
-Thin wrapper around the OpenRouteService (ORS) Directions API.
+Thin wrapper around the Mapbox APIs.
 
-Why ORS?
---------
-* Free tier: 2 000 req/day, 40 req/min – well within our needs.
-* Returns full route geometry (GeoJSON LineString) + total distance.
-* Uses 2 geocode calls + 1 directions call for reliable routing.
+Uses:
+  - Mapbox Geocoding API  (geocode city/address -> lat/lon)
+  - Mapbox Directions API (driving route geometry + distance)
 """
 
 import logging
@@ -16,15 +14,11 @@ import time
 from typing import Any
 
 import requests
-from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-ORS_BASE = "https://api.openrouteservice.org"
-ORS_GEOCODE = f"{ORS_BASE}/geocode/search"
-ORS_DIRECTIONS = f"{ORS_BASE}/v2/directions/driving-car/geojson"
-
-_TIMEOUT = (10, 40)
+MAPBOX_BASE = "https://api.mapbox.com"
+_TIMEOUT = (15, 60)
 
 
 class RoutingError(Exception):
@@ -32,40 +26,13 @@ class RoutingError(Exception):
 
 
 class RoutingService:
-    """
-    Wraps ORS API calls.  One instance per request.
-    API call budget: 3 calls per request.
-    """
-
-    def __init__(self, api_key: str) -> None:
-        self._key = api_key
+    def __init__(self, token: str) -> None:
+        self._token = token
         self._session = requests.Session()
         self._session.trust_env = False
-        self._headers = {
-            "Authorization": api_key,
-            "Content-Type": "application/json",
-            "Accept": "application/json, application/geo+json",
-        }
         self._api_calls_made = 0
 
-    # ------------------------------------------------------------------
-    # Public
-    # ------------------------------------------------------------------
-
     def get_route(self, origin: str, destination: str) -> dict[str, Any]:
-        """
-        Geocode both locations and retrieve the driving route.
-
-        Strategy (minimise API calls):
-          1. Try a SINGLE directions call with ORS inline text geocoding
-             (resolve_locations=true).  → 1 API call if it works.
-          2. On failure fall back to explicit geocode × 2 + directions.
-             → 3 API calls maximum.
-
-        Returns:
-            origin_coords, destination_coords, distance_miles,
-            duration_seconds, waypoints, geojson_geometry, api_calls_made
-        """
         origin_coords = self._geocode(origin)
         destination_coords = self._geocode(destination)
         route_data = self._directions(origin_coords, destination_coords)
@@ -86,74 +53,15 @@ class RoutingService:
             "api_calls_made": self._api_calls_made,
         }
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _directions_with_text(
-        self,
-        origin: str,
-        destination: str,
-    ) -> tuple[dict, tuple[float, float], tuple[float, float]] | None:
-        """
-        Try to get route + geocoding in ONE call by passing address strings
-        directly into the ORS directions endpoint with resolve_locations=true.
-        Returns (route_data, origin_coords, dest_coords) or None on failure.
-        """
-        payload = {
-            "coordinates": [origin, destination],
-            "resolve_locations": True,
-            "format": "geojson",
-            "instructions": False,
-        }
-        self._api_calls_made += 1
-        try:
-            r = self._session.post(
-                ORS_DIRECTIONS,
-                json=payload,
-                headers=self._headers,
-                timeout=_TIMEOUT,
-            )
-            if r.status_code not in (200, 201):
-                logger.debug("Single-call directions returned %d; will fall back.", r.status_code)
-                return None
-            resp = r.json()
-            feature = resp["features"][0]
-            props = feature["properties"]["summary"]
-            geometry = feature["geometry"]
-            coords = geometry["coordinates"]
-
-            # Extract resolved coordinates from waypoints if available
-            waypoint_meta = feature["properties"].get("way_points", [])
-            segments = feature["properties"].get("segments", [])
-
-            # Grab resolved lat/lon from the first and last coordinate
-            origin_coords = (float(coords[0][1]), float(coords[0][0]))
-            dest_coords = (float(coords[-1][1]), float(coords[-1][0]))
-
-            route_data = {
-                "distance_miles": props["distance"] / 1609.344,
-                "duration_seconds": props["duration"],
-                "coordinates": coords,
-                "geojson_geometry": geometry,
-            }
-            logger.info("Route fetched in 1 ORS API call.")
-            return route_data, origin_coords, dest_coords
-
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Single-call attempt failed: %s", exc)
-            return None
-
     def _geocode(self, location: str) -> tuple[float, float]:
-        """Geocode a free-text US location. Returns (lat, lon)."""
+        url = f"{MAPBOX_BASE}/geocoding/v5/mapbox.places/{requests.utils.quote(location)}.json"
         params = {
-            "api_key": self._key,
-            "text": location,
-            "boundary.country": "US",
-            "size": 1,
+            "access_token": self._token,
+            "country": "us",
+            "limit": 1,
         }
         self._api_calls_made += 1
-        resp = self._get(ORS_GEOCODE, params=params)
+        resp = self._get(url, params=params)
         features = resp.get("features", [])
         if not features:
             raise RoutingError(
@@ -168,29 +76,26 @@ class RoutingService:
         origin: tuple[float, float],
         destination: tuple[float, float],
     ) -> dict[str, Any]:
-        """Fetch driving directions between two (lat, lon) coordinate pairs."""
-        payload = {
-            "coordinates": [
-                [origin[1], origin[0]],
-                [destination[1], destination[0]],
-            ],
-            "format": "geojson",
-            "instructions": False,
+        coords = f"{origin[1]},{origin[0]};{destination[1]},{destination[0]}"
+        url = f"{MAPBOX_BASE}/directions/v5/mapbox/driving/{coords}"
+        params = {
+            "access_token": self._token,
+            "geometries": "geojson",
+            "overview": "full",
+            "steps": "false",
         }
         self._api_calls_made += 1
-        resp = self._post(ORS_DIRECTIONS, json=payload)
-        try:
-            feature = resp["features"][0]
-            props = feature["properties"]["summary"]
-            geometry = feature["geometry"]
-            coords = geometry["coordinates"]
-        except (KeyError, IndexError) as exc:
-            raise RoutingError("Unexpected ORS response format.") from exc
+        resp = self._get(url, params=params)
+        routes = resp.get("routes", [])
+        if not routes:
+            raise RoutingError("Mapbox returned no route between those locations.")
 
+        route = routes[0]
+        geometry = route["geometry"]
         return {
-            "distance_miles": props["distance"] / 1609.344,
-            "duration_seconds": props["duration"],
-            "coordinates": coords,
+            "distance_miles": route["distance"] / 1609.344,
+            "duration_seconds": route["duration"],
+            "coordinates": geometry["coordinates"],
             "geojson_geometry": geometry,
         }
 
@@ -200,10 +105,6 @@ class RoutingService:
         total_miles: float,
         interval_miles: float = 10,
     ) -> list[tuple[float, float]]:
-        """
-        Downsample the dense route polyline to one point every ~interval_miles.
-        Returns a list of (lat, lon) tuples including first and last points.
-        """
         if not coords:
             return []
 
@@ -225,14 +126,10 @@ class RoutingService:
 
         return sampled
 
-    # ------------------------------------------------------------------
-    # HTTP helpers
-    # ------------------------------------------------------------------
-
     def _get(self, url: str, params: dict | None = None, retries: int = 2) -> dict:
         for attempt in range(retries + 1):
             try:
-                r = self._session.get(url, params=params, headers=self._headers, timeout=_TIMEOUT)
+                r = self._session.get(url, params=params, timeout=_TIMEOUT)
                 if r.status_code == 429 and attempt < retries:
                     time.sleep(2 ** attempt)
                     continue
@@ -240,22 +137,7 @@ class RoutingService:
                 return r.json()
             except requests.RequestException as exc:
                 if attempt == retries:
-                    raise RoutingError(f"ORS GET request failed: {exc}") from exc
-                time.sleep(1)
-        return {}
-
-    def _post(self, url: str, json: dict | None = None, retries: int = 2) -> dict:
-        for attempt in range(retries + 1):
-            try:
-                r = self._session.post(url, json=json, headers=self._headers, timeout=_TIMEOUT)
-                if r.status_code == 429 and attempt < retries:
-                    time.sleep(2 ** attempt)
-                    continue
-                r.raise_for_status()
-                return r.json()
-            except requests.RequestException as exc:
-                if attempt == retries:
-                    raise RoutingError(f"ORS POST request failed: {exc}") from exc
+                    raise RoutingError(f"Mapbox GET request failed: {exc}") from exc
                 time.sleep(1)
         return {}
 
