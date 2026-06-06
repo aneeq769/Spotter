@@ -7,9 +7,7 @@ Why ORS?
 --------
 * Free tier: 2 000 req/day, 40 req/min – well within our needs.
 * Returns full route geometry (GeoJSON LineString) + total distance.
-* We attempt a SINGLE directions call with inline text geocoding first
-  (ORS "resolve_locations" feature), hitting the "one call ideal".
-  If that fails we fall back to 2 geocode calls + 1 directions = 3 total.
+* Uses 2 geocode calls + 1 directions call for reliable routing.
 """
 
 import logging
@@ -24,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 ORS_BASE = "https://api.openrouteservice.org"
 ORS_GEOCODE = f"{ORS_BASE}/geocode/search"
-ORS_DIRECTIONS = f"{ORS_BASE}/v2/directions/driving-car"
+ORS_DIRECTIONS = f"{ORS_BASE}/v2/directions/driving-car/geojson"
 
-_TIMEOUT = (5, 30)
+_TIMEOUT = (10, 40)
 
 
 class RoutingError(Exception):
@@ -36,11 +34,13 @@ class RoutingError(Exception):
 class RoutingService:
     """
     Wraps ORS API calls.  One instance per request.
-    API call budget: 1 (ideal) to 3 (fallback).
+    API call budget: 3 calls per request.
     """
 
     def __init__(self, api_key: str) -> None:
         self._key = api_key
+        self._session = requests.Session()
+        self._session.trust_env = False
         self._headers = {
             "Authorization": api_key,
             "Content-Type": "application/json",
@@ -66,16 +66,9 @@ class RoutingService:
             origin_coords, destination_coords, distance_miles,
             duration_seconds, waypoints, geojson_geometry, api_calls_made
         """
-        # --- Attempt 1: single call with inline text geocoding ---
-        single = self._directions_with_text(origin, destination)
-        if single is not None:
-            route_data, origin_coords, destination_coords = single
-        else:
-            # --- Fallback: explicit geocode + directions (≤ 3 calls) ---
-            logger.info("Single-call route failed; using explicit geocode fallback.")
-            origin_coords = self._geocode(origin)
-            destination_coords = self._geocode(destination)
-            route_data = self._directions(origin_coords, destination_coords)
+        origin_coords = self._geocode(origin)
+        destination_coords = self._geocode(destination)
+        route_data = self._directions(origin_coords, destination_coords)
 
         waypoints = self._sample_waypoints(
             route_data["coordinates"],
@@ -115,7 +108,7 @@ class RoutingService:
         }
         self._api_calls_made += 1
         try:
-            r = requests.post(
+            r = self._session.post(
                 ORS_DIRECTIONS,
                 json=payload,
                 headers=self._headers,
@@ -239,7 +232,7 @@ class RoutingService:
     def _get(self, url: str, params: dict | None = None, retries: int = 2) -> dict:
         for attempt in range(retries + 1):
             try:
-                r = requests.get(url, params=params, headers=self._headers, timeout=_TIMEOUT)
+                r = self._session.get(url, params=params, headers=self._headers, timeout=_TIMEOUT)
                 if r.status_code == 429 and attempt < retries:
                     time.sleep(2 ** attempt)
                     continue
@@ -254,7 +247,7 @@ class RoutingService:
     def _post(self, url: str, json: dict | None = None, retries: int = 2) -> dict:
         for attempt in range(retries + 1):
             try:
-                r = requests.post(url, json=json, headers=self._headers, timeout=_TIMEOUT)
+                r = self._session.post(url, json=json, headers=self._headers, timeout=_TIMEOUT)
                 if r.status_code == 429 and attempt < retries:
                     time.sleep(2 ** attempt)
                     continue

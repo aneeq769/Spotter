@@ -26,6 +26,8 @@ from utils.routing_service import RoutingService, RoutingError
 
 logger = logging.getLogger(__name__)
 
+PLACEHOLDER_ORS_API_KEY = "your-openrouteservice-api-key-here"
+
 
 class HealthCheckView(APIView):
     """Simple health check endpoint — useful for verifying the server is running."""
@@ -33,10 +35,11 @@ class HealthCheckView(APIView):
     def get(self, request: Request) -> Response:
         from utils.fuel_station_service import get_fuel_station_service
         svc = get_fuel_station_service()
+        api_key = settings.ORS_API_KEY
         return Response({
             "status": "ok",
             "fuel_stations_loaded": len(svc.dataframe),
-            "ors_api_key_configured": bool(settings.ORS_API_KEY),
+            "ors_api_key_configured": bool(api_key and api_key != PLACEHOLDER_ORS_API_KEY),
         })
 
 
@@ -178,7 +181,7 @@ class RouteView(APIView):
         # 2. Fetch route from ORS (1–2 API calls)
         # ----------------------------------------------------------------
         api_key = settings.ORS_API_KEY
-        if not api_key:
+        if not api_key or api_key == PLACEHOLDER_ORS_API_KEY:
             return Response(
                 {
                     "error": "ORS_API_KEY is not configured. "

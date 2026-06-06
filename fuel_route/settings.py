@@ -8,8 +8,9 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load environment variables from the project .env file
-load_dotenv(BASE_DIR / '.env')
+# Load environment variables from the project .env file.
+# The local .env should win over stale OS-level values during development.
+load_dotenv(BASE_DIR / '.env', override=True)
 
 # SECURITY
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-change-this-in-production')
