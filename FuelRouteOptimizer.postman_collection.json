@@ -1,0 +1,183 @@
+{
+  "info": {
+    "name": "Fuel Route Optimizer API",
+    "_postman_id": "fuel-route-optimizer-v1",
+    "description": "Demo collection for the Fuel Route Optimizer API.\n\nBefore using:\n1. Set the `base_url` variable to `http://localhost:8000` (or your deployed URL)\n2. Start the Django server: `python manage.py runserver`\n3. Run the Health Check first to confirm everything is working.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/health/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "health", ""]
+        },
+        "description": "Verify the server is up and the fuel station data + ORS API key are loaded."
+      },
+      "response": []
+    },
+    {
+      "name": "Route - Los Angeles to New York",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"Los Angeles, CA\",\n  \"end\": \"New York, NY\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/route/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "route", ""]
+        },
+        "description": "Classic cross-country route (~2,800 miles). Should produce 5-6 fuel stops.\n\nResponse includes:\n- total_distance_miles\n- total_fuel_cost_usd (at 10 MPG)\n- fuel_stops array with cheapest stations along the route\n- route_map (GeoJSON — paste into geojson.io to visualise)"
+      },
+      "response": []
+    },
+    {
+      "name": "Route - Chicago to Miami",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"Chicago, IL\",\n  \"end\": \"Miami, FL\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/route/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "route", ""]
+        },
+        "description": "North-south interstate route (~1,380 miles). Should produce 2-3 fuel stops."
+      },
+      "response": []
+    },
+    {
+      "name": "Route - Seattle to Dallas",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"Seattle, WA\",\n  \"end\": \"Dallas, TX\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/route/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "route", ""]
+        },
+        "description": "Pacific Northwest to Southwest (~2,100 miles). Good for showing multiple stops through different price regions."
+      },
+      "response": []
+    },
+    {
+      "name": "Route - Short Trip (no fuel stop needed)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"Los Angeles, CA\",\n  \"end\": \"Las Vegas, NV\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/route/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "route", ""]
+        },
+        "description": "~270 miles — fits within the 500-mile tank range so fuel_stops will be empty. Shows that logic correctly handles short trips."
+      },
+      "response": []
+    },
+    {
+      "name": "Route - Custom MPG and Range",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"Boston, MA\",\n  \"end\": \"Atlanta, GA\",\n  \"max_range_miles\": 300,\n  \"mpg\": 25\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/route/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "route", ""]
+        },
+        "description": "Demonstrates optional parameters: smaller 300-mile tank range, 25 MPG efficiency (like a regular car vs. truck)."
+      },
+      "response": []
+    },
+    {
+      "name": "Error - Missing start field",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"end\": \"New York, NY\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/route/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "route", ""]
+        },
+        "description": "Shows proper 400 validation error when required fields are missing."
+      },
+      "response": []
+    },
+    {
+      "name": "Swagger UI (open in browser)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/docs/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "docs", ""]
+        },
+        "description": "Interactive Swagger UI — open this URL in a browser to explore the full API documentation."
+      },
+      "response": []
+    }
+  ]
+}
