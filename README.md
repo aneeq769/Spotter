@@ -5,7 +5,7 @@ A Django REST API that calculates the **cheapest fuel stop plan** for any drivin
 ## What It Does
 
 Given a start and end location, the API:
-1. Geocodes both locations and fetches the driving route (via **OpenRouteService** — free)
+1. Geocodes both locations and fetches the driving route (via **Mapbox** — free tier)
 2. Plans the optimal sequence of fuel stops using real truckstop price data (8,000+ stations)
 3. Returns a **GeoJSON map** of the route + fuel stop markers, plus the **total fuel cost**
 
@@ -16,8 +16,8 @@ Given a start and end location, the API:
 | Concern | Choice | Reason |
 |---|---|---|
 | Framework | Django 5.0 + DRF | Requirement |
-| Routing / Map API | [OpenRouteService](https://openrouteservice.org/) (free) | Free tier 2 000 req/day; single call gives route + distance |
-| Fuel data | Bundled CSV (8 000+ US truckstops) | No extra API call needed |
+| Routing / Map API | [Mapbox](https://www.mapbox.com/) (free tier) | Free tier; 2 geocode + 1 directions = 3 calls per request |
+| Fuel data | Bundled CSV (8,000+ US truckstops) | No extra API call needed |
 | Spatial index | `scipy.KDTree` | O(log n) nearest-station lookup, runs in memory |
 | Docs | drf-spectacular (Swagger + ReDoc) | Auto-generated from code |
 
@@ -29,7 +29,7 @@ Given a start and end location, the API:
 
 ```bash
 git clone <your-repo-url>
-cd fuel_route_api
+cd fuel_route_api_final
 
 python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
@@ -41,9 +41,10 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 # Edit .env and fill in:
-#   SECRET_KEY  – any random string
-#                 generate: python -c "import secrets; print(secrets.token_hex(32))"
-#   ORS_API_KEY – free key from https://openrouteservice.org/dev/#/signup
+#   SECRET_KEY    – any random string
+#                   generate: python -c "import secrets; print(secrets.token_hex(32))"
+#   MAPBOX_TOKEN  – free token from https://account.mapbox.com/
+#                   Create a token with NAVIGATION:DOWNLOAD scope enabled
 ```
 
 ### 3. Run database migrations and start server
@@ -66,8 +67,8 @@ Verify the server is running and data is loaded.
 ```json
 {
   "status": "ok",
-  "fuel_stations_loaded": 6738,
-  "ors_api_key_configured": true
+  "fuel_stations_loaded": 6626,
+  "mapbox_token_configured": true
 }
 ```
 
@@ -106,7 +107,7 @@ Verify the server is running and data is loaded.
   "total_gallons_needed": 278.94,
   "total_fuel_cost_usd": 871.23,
   "average_price_per_gallon": 3.123,
-  "api_calls_to_ors": 1,
+  "api_calls_to_mapbox": 3,
   "fuel_stops": [
     {
       "station_id": 421,
@@ -153,8 +154,8 @@ A ready-made Postman collection is included: **`FuelRouteOptimizer.postman_colle
 
 | Step | Request | What to show |
 |---|---|---|
-| 1 | `GET /api/health/` | Server is up, 6 738 stations loaded |
-| 2 | `POST /api/route/` LA → NYC | Full response: stops, cost, GeoJSON |
+| 1 | `GET /api/health/` | Server is up, 6626 stations loaded, token configured |
+| 2 | `POST /api/route/` LA → NYC | Full response: stops, cost, GeoJSON, 3 Mapbox calls |
 | 3 | Copy `route_map` JSON → paste into [geojson.io](https://geojson.io) | Visual map in browser |
 | 4 | `POST /api/route/` LA → Las Vegas | Short trip, zero stops |
 | 5 | `POST /api/route/` missing `start` | 400 validation error |
@@ -172,12 +173,6 @@ Copy the `route_map` value from any response and paste it into **[geojson.io](ht
 python manage.py test
 ```
 
-12 tests covering:
-- CSV loading and deduplication
-- KD-tree spatial queries
-- Fuel optimizer algorithm (multi-stop, single-stop, no-stop trips)
-- API endpoint validation (200, 400, 503 responses)
-
 ---
 
 ## How the Fuel Optimizer Works
@@ -194,21 +189,24 @@ python manage.py test
 
 ## API Call Budget
 
-The assessment requires ≤ 3 ORS API calls per request. Here's what happens:
+The assessment requires ≤ 3 Mapbox API calls per request. Here's what happens:
 
-| Attempt | Calls | When |
-|---|---|---|
-| Single-call (ideal) | **1** | ORS inline geocoding succeeds |
-| Explicit geocode fallback | **3** | 2 geocode + 1 directions |
+| Call | Purpose |
+|---|---|
+| 1 | Geocode start location |
+| 2 | Geocode end location |
+| 3 | Directions (route geometry + distance) |
 
-The `api_calls_to_ors` field in every response shows the actual count used.
+All fuel stop planning is done **in memory** using the bundled CSV — zero extra API calls.
+
+The `api_calls_to_mapbox` field in every response shows the actual count used (always 3).
 
 ---
 
 ## Project Structure
 
 ```
-fuel_route_api/
+fuel_route_api_final/
 ├── .env.example                           ← copy to .env, fill in keys
 ├── .gitignore                             ← .env excluded
 ├── requirements.txt
@@ -224,11 +222,11 @@ fuel_route_api/
 │   ├── serializers.py
 │   ├── views.py                           ← GET /api/health/ + POST /api/route/
 │   ├── urls.py
-│   └── tests.py                           ← 12 tests
+│   └── tests.py
 └── utils/                                 ← pure business logic
     ├── fuel_station_service.py            ← CSV loader + KD-tree
     ├── fuel_optimizer.py                  ← greedy fuel-stop planner
-    └── routing_service.py                 ← OpenRouteService wrapper
+    └── routing_service.py                 ← Mapbox API wrapper
 ```
 
 ---
@@ -240,20 +238,21 @@ fuel_route_api/
 | `SECRET_KEY` | ✅ | Django secret key |
 | `DEBUG` | ❌ | `True` / `False` (default `True`) |
 | `ALLOWED_HOSTS` | ❌ | Comma-separated list |
-| `ORS_API_KEY` | ✅ | OpenRouteService API key (free) |
+| `MAPBOX_TOKEN` | ✅ | Mapbox API token (free) |
 
 **Never commit `.env` to git.** The `.gitignore` excludes it automatically.
 
 ---
 
-## Getting a Free ORS API Key
+## Getting a Free Mapbox Token
 
-1. Visit https://openrouteservice.org/dev/#/signup
+1. Visit https://account.mapbox.com/
 2. Create a free account
-3. Copy your API key from the dashboard
-4. Add to `.env`: `ORS_API_KEY=<your-key>`
+3. Go to **Access tokens** → **Create a token**
+4. Enable the **NAVIGATION:DOWNLOAD** scope
+5. Copy your token and add to `.env`: `MAPBOX_TOKEN=sk.your-token-here`
 
-Free tier: 2 000 requests/day, 40 requests/minute.
+Free tier: 100,000 requests/month.
 
 ---
 

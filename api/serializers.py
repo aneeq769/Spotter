@@ -68,4 +68,4 @@ class RouteResponseSerializer(serializers.Serializer):
     route_map = serializers.DictField(
         help_text="GeoJSON FeatureCollection containing the route and fuel stop markers."
     )
-    api_calls_to_ors = serializers.IntegerField()
+    api_calls_to_mapbox = serializers.IntegerField()

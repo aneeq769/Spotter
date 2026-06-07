@@ -23,7 +23,7 @@
           "host": ["{{base_url}}"],
           "path": ["api", "health", ""]
         },
-        "description": "Verify the server is up and the fuel station data + ORS API key are loaded."
+        "description": "Verify the server is up, fuel station data is loaded, and the Mapbox token is configured."
       },
       "response": []
     },
@@ -46,7 +46,7 @@
           "host": ["{{base_url}}"],
           "path": ["api", "route", ""]
         },
-        "description": "Classic cross-country route (~2,800 miles). Should produce 5-6 fuel stops.\n\nResponse includes:\n- total_distance_miles\n- total_fuel_cost_usd (at 10 MPG)\n- fuel_stops array with cheapest stations along the route\n- route_map (GeoJSON — paste into geojson.io to visualise)"
+        "description": "Classic cross-country route (~2,800 miles). Should produce 5-6 fuel stops.\n\nResponse includes:\n- total_distance_miles\n- total_fuel_cost_usd (at 10 MPG)\n- fuel_stops array with cheapest stations along the route\n- route_map (GeoJSON — paste into geojson.io to visualise)\n- api_calls_to_mapbox (will be 3: 2 geocode + 1 directions)"
       },
       "response": []
     },
@@ -115,7 +115,7 @@
           "host": ["{{base_url}}"],
           "path": ["api", "route", ""]
         },
-        "description": "~270 miles — fits within the 500-mile tank range so fuel_stops will be empty. Shows that logic correctly handles short trips."
+        "description": "~270 miles — fits within the 500-mile tank range so fuel_stops will be empty. Shows that the logic correctly handles short trips."
       },
       "response": []
     },
